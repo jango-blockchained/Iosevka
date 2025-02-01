@@ -9,6 +9,10 @@ export class Vec2 {
 	static from(z) {
 		return new Vec2(z.x, z.y);
 	}
+
+	static scaleFrom(s, z) {
+		return new Vec2(s * z.x, s * z.y);
+	}
 }
 
 export class Point {
@@ -29,12 +33,8 @@ export class Point {
 	addScale(scale, z2) {
 		return new Point(this.type, this.x + scale * z2.x, this.y + scale * z2.y);
 	}
-	mix(scale, z2) {
-		return new Point(
-			this.type,
-			this.x + scale * (z2.x - this.x),
-			this.y + scale * (z2.y - this.y),
-		);
+	mix(z2, t) {
+		return new Point(this.type, mix(this.x, z2.x, t), mix(this.y, z2.y, t));
 	}
 	scale(t) {
 		return new Point(this.type, t * this.x, t * this.y);

@@ -17,12 +17,12 @@ class BooleImpl {
 			const g1 = new Glyph();
 			g1.gizmo = forwardGizmo;
 			g1.include(operand);
-			operandGeometries.push(new TransformedGeometry(g1.geometry, backwardGizmo));
+			operandGeometries.push(TransformedGeometry.create(backwardGizmo, g1.geometry));
 		}
 		return glyph.includeGeometry(
-			new TransformedGeometry(
-				new BooleanGeometry(this.operator, operandGeometries),
+			TransformedGeometry.create(
 				forwardGizmo,
+				new BooleanGeometry(this.operator, operandGeometries),
 			),
 		);
 	}
@@ -34,9 +34,11 @@ export function SetupBuilders(bindings) {
 		new BooleImpl(bindings, TypoGeom.Boolean.ClipType.ctIntersection, operands);
 	const difference = (...operands) =>
 		new BooleImpl(bindings, TypoGeom.Boolean.ClipType.ctDifference, operands);
+	const withKnockout = (mask, ...operands) => difference(union(...operands), mask);
 	return {
 		union: union,
 		intersection: intersection,
 		difference: difference,
+		"with-knockout": withKnockout,
 	};
 }

@@ -1,4 +1,5 @@
 import * as FS from "fs";
+import { randomUUID } from "node:crypto";
 import * as Path from "path";
 
 import * as toml from "@iarna/toml";
@@ -13,7 +14,7 @@ import which from "which";
 export const build = Verda.create();
 const { task, file, oracle, computed } = build.ruleTypes;
 const { de, fu, sfu, ofu } = build.rules;
-const { run, node, cd, cp, rm, fail, echo, silently, absolutelySilently } = build.actions;
+const { run, node, cd, cp, rm, mv, fail, echo, silently, absolutelySilently } = build.actions;
 const { FileList } = build.predefinedFuncs;
 
 ///////////////////////////////////////////////////////////
@@ -21,6 +22,9 @@ const { FileList } = build.predefinedFuncs;
 const BUILD = ".build";
 const DIST = "dist";
 const IMAGES = "images";
+
+const PACKAGES = "packages";
+const TOOLS = "tools";
 
 const IMAGE_TASKS = ".build/image-tasks";
 const GLYF_TTC = ".build/glyf-ttc";
@@ -53,7 +57,7 @@ build.setJournal(`${BUILD}/.verda-build-journal`);
 build.setSelfTracking();
 
 ///////////////////////////////////////////////////////////
-//////                   Oracles                     //////
+//////                 Environment                   //////
 ///////////////////////////////////////////////////////////
 
 const Version = computed(`env::version`, async target => {
@@ -71,15 +75,39 @@ const CheckTtfAutoHintExists = oracle(`oracle:check-ttfautohint-exists`, async t
 });
 
 const Dependencies = computed("env::dependencies", async target => {
-	const [pjf] = await target.need(sfu`package.json`);
-	const pj = JSON.parse(await FS.promises.readFile(pjf.full, "utf-8"));
-	let subGoals = [];
-	for (const pkgName in pj.dependencies) {
-		subGoals.push(InstalledVersion(pkgName, pj.dependencies[pkgName]));
+	const [packageJsons] = await target.need(AllPackageJsons);
+	const subGoals = [];
+	for (const pjf of packageJsons) {
+		subGoals.push(DependenciesFor(pjf));
 	}
-	const [actual] = await target.need(subGoals);
-	return actual;
+	return await target.need(subGoals);
 });
+
+const AllPackageJsons = computed("env::all-package-jsons", async target => {
+	const [ppj, tpj] = await target.need(PackagesPackagesJsons, ToolPackagesJsons);
+	return [`package.json`, ...ppj, ...tpj];
+});
+const PackagesPackagesJsons = computed("env::packages-packages-jsons", target =>
+	FileList({ under: "packages", pattern: "*/package.json" })(target),
+);
+const ToolPackagesJsons = computed("env::tool-packages-jsons", target =>
+	FileList({ under: "tools", pattern: "*/package.json" })(target),
+);
+
+const DependenciesFor = computed.make(
+	pakcageJsonPath => `env::dependencies-for::${pakcageJsonPath}`,
+	async (target, pakcageJsonPath) => {
+		const [pjf] = await target.need(sfu(pakcageJsonPath));
+		const pj = JSON.parse(await FS.promises.readFile(pjf.full, "utf-8"));
+		let subGoals = [];
+		for (const pkgName in pj.dependencies) {
+			if (/^@iosevka/.test(pkgName)) continue;
+			subGoals.push(InstalledVersion(pkgName, pj.dependencies[pkgName]));
+		}
+		const [actual] = await target.need(subGoals);
+		return actual;
+	},
+);
 
 const InstalledVersion = computed.make(
 	(pkg, required) => `env::installed-version::${pkg}::${required}`,
@@ -218,17 +246,40 @@ const GroupFontsOf = computed.group("metadata:group-fonts-of", async (target, gi
 	return plan.targets;
 });
 
-const CompositesFromBuildPlan = computed(`metadata:composites-from-build-plan`, async target => {
-	const [{ buildPlans }] = await target.need(BuildPlans);
-	let data = {};
-	for (const bpn in buildPlans) {
-		let bp = buildPlans[bpn];
-		if (bp.variants) {
-			data[bpn] = bp.variants;
+const VariantCompositesFromBuildPlan = computed(
+	`metadata:variant-composites-from-build-plan`,
+	async target => {
+		const [{ buildPlans }] = await target.need(BuildPlans);
+		let data = {};
+		for (const bpn in buildPlans) {
+			let bp = buildPlans[bpn];
+			if (bp.variants) {
+				data[bpn] = bp.variants;
+			}
 		}
-	}
-	return data;
-});
+		return data;
+	},
+);
+
+const LigtionCompositesFromBuildPlan = computed(
+	`metadata:ligation-composites-from-build-plan`,
+	async target => {
+		const [{ buildPlans }] = await target.need(BuildPlans);
+		let data = {};
+		for (const bpn in buildPlans) {
+			let bp = buildPlans[bpn];
+			if (bp.ligations) {
+				data[`buildPlans.${bpn}`] = bp.ligations;
+			}
+			if (bp.customLigationTags) {
+				for (const [tag, config] of Object.entries(bp.customLigationTags)) {
+					data[`buildPlans.${bpn}.${tag}`] = config;
+				}
+			}
+		}
+		return data;
+	},
+);
 
 // eslint-disable-next-line complexity
 const FontInfoOf = computed.group("metadata:font-info-of", async (target, fileName) => {
@@ -254,6 +305,9 @@ const FontInfoOf = computed.group("metadata:font-info-of", async (target, fileNa
 		};
 	}
 
+	const [variantCompositesFromBuildPlan] = await target.need(VariantCompositesFromBuildPlan);
+	const [ligtionCompositesFromBuildPlan] = await target.need(LigtionCompositesFromBuildPlan);
+
 	return {
 		name: fileName,
 		variants: bp.variants || null,
@@ -267,15 +321,18 @@ const FontInfoOf = computed.group("metadata:font-info-of", async (target, fileNa
 		},
 		// Ligations
 		ligations: bp.ligations || null,
+		customLigationTags: bp.customLigationTags || null,
 		// Shape
 		shape: {
-			serifs: bp.serifs || null,
-			spacing: bp.spacing || null,
+			serifs: bp.serifs || "sans",
+			spacing: bp.spacing || "normal",
 			weight: sfi.shapeWeight,
 			width: sfi.shapeWidth,
 			slope: sfi.shapeSlope,
 			slopeAngle: sfi.shapeSlopeAngle,
 		},
+		// Naming
+		namingOverride: bp.namingOverride || null,
 		// Menu
 		menu: {
 			family: bp.family,
@@ -304,6 +361,10 @@ const FontInfoOf = computed.group("metadata:font-info-of", async (target, fileNa
 
 		// Spacing derivation -- creating faster build for spacing variants
 		spacingDerive,
+
+		// Composite variants from build plan -- used for variant resolution when building fonts
+		variantCompositesFromBuildPlan,
+		ligtionCompositesFromBuildPlan,
 	};
 });
 
@@ -424,28 +485,31 @@ const DistUnhintedTTF = file.make(
 			// Ab-initio build
 			const cacheFileName =
 				`${Math.round(1000 * fi.shape.weight)}-${Math.round(1000 * fi.shape.width)}-` +
-				`${Math.round(3600 * fi.shape.slopeAngle)}-${fi.shape.slope}`;
+				`${Math.round(3600 * fi.shape.slopeAngle)}-${fi.shape.serifs}`;
 			const cachePath = `${SHARED_CACHE}/${cacheFileName}.mpz`;
 			const cacheDiffPath = `${charMapPath.dir}/${fn}.cache.mpz`;
 
-			const [comps] = await target.need(
-				CompositesFromBuildPlan,
-				de(charMapPath.dir),
-				de(ttfaControlsPath.dir),
-				de(SHARED_CACHE),
-			);
+			await target.need(de(charMapPath.dir), de(ttfaControlsPath.dir), de(SHARED_CACHE));
 
 			echo.action(echo.hl.command(`Create TTF`), out.full);
 			const { cacheUpdated } = await silently.node("packages/font/src/index.mjs", {
-				o: out.full,
-				...(fi.buildCharMap ? { oCharMap: charMapPath.full } : {}),
-				paramsDir: Path.resolve("params"),
-				oTtfaControls: ttfaControlsPath.full,
-				cacheFreshAgeKey: ageKey,
-				iCache: cachePath,
-				oCache: cacheDiffPath,
-				compositesFromBuildPlan: comps,
+				// INPUT: font info
 				...fi,
+				// INPUT: path to parameters
+				paramsDir: Path.resolve("params"),
+				// TTF output. Optional.
+				o: out.full,
+				// Charmap output. Optional.
+				...(fi.buildCharMap ? { oCharMap: charMapPath.full } : {}),
+				// TTFAutohint controls output. Optional.
+				oTtfaControls: ttfaControlsPath.full,
+
+				// Geometry cache parameters. Optional.
+				cache: {
+					input: cachePath,
+					output: cacheDiffPath,
+					freshAgeKey: ageKey,
+				},
 			});
 
 			if (cacheUpdated) {
@@ -535,8 +599,8 @@ const BuildNoGcTtf = task.make(
 			const [noGc] = await target.need(BuildNoGcTtfImpl(gr, fn));
 			return noGc;
 		} else {
-			const [distUnhinted] = await target.need(DistHintedTTF(gr, fn));
-			return distUnhinted;
+			const [distHinted] = await target.need(DistHintedTTF(gr, fn));
+			return distHinted;
 		}
 	},
 );
@@ -547,11 +611,19 @@ function formatSuffix(fmt, unhinted) {
 const DistWoff2 = file.make(
 	(gr, fn, unhinted) => `${DIST}/${gr}/${formatSuffix("WOFF2", unhinted)}/${fn}.woff2`,
 	async (target, out, group, f, unhinted) => {
+		const [rp] = await target.need(RawPlans);
 		const Ctor = unhinted ? DistUnhintedTTF : DistHintedTTF;
-
 		const [from] = await target.need(Ctor(group, f), de`${out.dir}`);
+
 		echo.action(echo.hl.command("Create WOFF2"), out.full, echo.hl.operator("<-"), from.full);
-		await silently.node(`tools/misc/src/ttf-to-woff2.mjs`, from.full, out.full);
+		if (rp.buildOptions && rp.buildOptions.woff2CompressApp) {
+			// woff2_compress does not support specifying output file name.
+			// Thus we need to move it after compression.
+			await absolutelySilently.run(rp.buildOptions.woff2CompressApp, from.full);
+			await mv(`${from.dir}/${from.name}.woff2`, out.full);
+		} else {
+			await silently.node(`tools/misc/src/ttf-to-woff2.mjs`, from.full, out.full);
+		}
 	},
 );
 
@@ -659,29 +731,32 @@ const CollectPlans = computed(`metadata:collect-plans`, async target => {
 	return await getCollectPlans(target, rawPlans.collectPlans);
 });
 
-// eslint-disable-next-line complexity
+const SGR_PREFIX_PREFIX = "SGr-";
+
 async function getCollectPlans(target, rawCollectPlans) {
 	const plans = {};
 
 	let allCollectableGroups = new Set();
+
 	for (const collectPrefix in rawCollectPlans) {
 		const collect = rawCollectPlans[collectPrefix];
-		if (!collect.release) continue;
-		for (const gr of collect.from) allCollectableGroups.add(gr);
-	}
 
-	const amendedRawCollectPlans = { ...rawCollectPlans };
-	out: for (const gr of allCollectableGroups) {
-		for (const [k, cp] of Object.entries(rawCollectPlans)) {
-			if (cp.from.length === 1 && cp.from[0] === gr) continue out;
+		const glyfTtcComposition = {}; // Collect plan for glyf-sharing TTCs
+		const ttcComposition = {}; // Collect plan for master TTCs
+		const singleGroupTtcInfos = {}; // single-group TTCs
+
+		const shouldProduceSgr = collect.release && collect.from.length > 1;
+
+		if (shouldProduceSgr) {
+			for (const prefix of collect.from) {
+				const sgrPrefix = SGR_PREFIX_PREFIX + prefix;
+				if (allCollectableGroups.has(sgrPrefix))
+					throw new Error(`Group ${sgrPrefix} is already in another release plan.`);
+				allCollectableGroups.add(sgrPrefix);
+				singleGroupTtcInfos[sgrPrefix] = { from: prefix, comp: {} };
+			}
 		}
-		amendedRawCollectPlans[`SGr-` + gr] = { release: true, isAmended: true, from: [gr] };
-	}
 
-	for (const collectPrefix in amendedRawCollectPlans) {
-		const glyfTtcComposition = {};
-		const ttcComposition = {};
-		const collect = amendedRawCollectPlans[collectPrefix];
 		if (!collect || !collect.from || !collect.from.length) continue;
 
 		for (const prefix of collect.from) {
@@ -701,12 +776,21 @@ async function getCollectPlans(target, rawCollectPlans) {
 				const ttcFileName = fnStandardTtc(false, collectPrefix, suffixMap, sfi);
 				if (!ttcComposition[ttcFileName]) ttcComposition[ttcFileName] = [];
 				ttcComposition[ttcFileName].push(glyfTtcFileName);
+
+				if (shouldProduceSgr) {
+					const sgrPrefix = SGR_PREFIX_PREFIX + prefix;
+					const sgrTtcFileName = fnStandardTtc(false, sgrPrefix, suffixMap, sfi);
+					const sgrInfo = singleGroupTtcInfos[sgrPrefix];
+					if (!sgrInfo.comp[sgrTtcFileName]) sgrInfo.comp[sgrTtcFileName] = [];
+					sgrInfo.comp[sgrTtcFileName].push(ttfTargetName);
+				}
 			}
 		}
 		plans[collectPrefix] = {
 			glyfTtcComposition,
 			ttcComposition,
 			groupDecomposition: [...collect.from],
+			singleGroupTtcInfos,
 			inRelease: !!collect.release,
 			isAmended: !!collect.isAmended,
 		};
@@ -771,6 +855,36 @@ const CollectedTtcFile = file.make(
 		await buildCompositeTtc(out, inputs);
 	},
 );
+
+const SGrTtcFile = file.make(
+	(cgr, sgr, f) => `${DIST_TTC}/${sgr}/${f}.ttc`,
+	async (target, out, cgr, sgr, f) => {
+		const [cp] = await target.need(CollectPlans, de`${out.dir}`);
+		const sgrInfo = cp[cgr].singleGroupTtcInfos[sgr];
+		const parts = Array.from(new Set(sgrInfo.comp[f] || []));
+		const [inputs] = await target.need(parts.map(pt => DistHintedTTF(sgrInfo.from, pt)));
+		await buildCompositeTtc(out, inputs);
+	},
+);
+const SGrSuperTtcFile = file.make(
+	(cgr, sgr) => `${DIST_SUPER_TTC}/${sgr}.ttc`,
+	async (target, out, cgr, sgr) => {
+		const [cp] = await target.need(CollectPlans, de`${out.dir}`);
+		const sgrInfo = cp[cgr].singleGroupTtcInfos[sgr];
+		const parts = Array.from(Object.keys(sgrInfo.comp));
+		const [inputs] = await target.need(parts.map(pt => SGrTtcFile(cgr, sgr, pt)));
+		await buildCompositeTtc(out, inputs);
+	},
+);
+async function buildCompositeTtc(out, inputs) {
+	const inputPaths = inputs.map(f => f.full);
+	echo.action(echo.hl.command(`Create TTC`), out.full, echo.hl.operator("<-"), inputPaths);
+	await foldWithTempFileRetryImpl(inputPaths, i =>
+		absolutelySilently.run(MAKE_TTC, ["-o", out.full], i),
+	);
+}
+
+// TTC for glyph sharing
 const GlyfTtc = file.make(
 	(cgr, f) => `${GLYF_TTC}/${cgr}/${f}.ttc`,
 	async (target, out, cgr, f) => {
@@ -779,19 +893,30 @@ const GlyfTtc = file.make(
 		await buildGlyphSharingTtc(target, parts, out);
 	},
 );
-
-async function buildCompositeTtc(out, inputs) {
-	const inputPaths = inputs.map(f => f.full);
-	echo.action(echo.hl.command(`Create TTC`), out.full, echo.hl.operator("<-"), inputPaths);
-	await absolutelySilently.run(MAKE_TTC, ["-o", out.full], inputPaths);
-}
-
 async function buildGlyphSharingTtc(target, parts, out) {
 	await target.need(de`${out.dir}`);
 	const [ttfInputs] = await target.need(parts.map(part => BuildNoGcTtf(part.dir, part.file)));
 	const ttfInputPaths = ttfInputs.map(p => p.full);
 	echo.action(echo.hl.command(`Create TTC`), out.full, echo.hl.operator("<-"), ttfInputPaths);
-	await silently.run(MAKE_TTC, "-u", ["-o", out.full], ttfInputPaths);
+	await foldWithTempFileRetryImpl(ttfInputPaths, i =>
+		silently.run(MAKE_TTC, "-u", ["-o", out.full], i),
+	);
+}
+
+async function foldWithTempFileRetryImpl(inputPaths, fn) {
+	try {
+		return await fn(inputPaths);
+	} catch (e) {
+		// Retry with temporary files
+		const tempPaths = [];
+		for (const input of inputPaths) {
+			let tmp = `${BUILD}/${String(randomUUID())}.${Path.extname(input)}`;
+			await cp(input, tmp);
+			tempPaths.push(tmp);
+		}
+		await fn(tempPaths);
+		for (const tmp of tempPaths) await rm(tmp);
+	}
 }
 
 ///////////////////////////////////////////////////////////
@@ -813,6 +938,22 @@ const SuperTtcZip = file.make(
 	async (target, out, cgr) => {
 		await target.need(de`${out.dir}`, CollectedSuperTtcFile(cgr));
 		await CreateGroupArchiveFile(DIST_SUPER_TTC, out, `${cgr}.ttc`);
+	},
+);
+const SgrTtcZip = file.make(
+	(cgr, sgr, version) => `${ARCHIVE_DIR}/PkgTTC-${sgr}-${version}.zip`,
+	async (target, out, cgr, sgr) => {
+		const [cPlan] = await target.need(CollectPlans, de`${out.dir}`);
+		const ttcFiles = Array.from(Object.keys(cPlan[cgr].singleGroupTtcInfos[sgr].comp));
+		await target.need(ttcFiles.map(pt => SGrTtcFile(cgr, sgr, pt)));
+		await CreateGroupArchiveFile(`${DIST_TTC}/${sgr}`, out, `*.ttc`);
+	},
+);
+const SgrSuperTtcZip = file.make(
+	(cgr, sgr, version) => `${ARCHIVE_DIR}/SuperTTC-${sgr}-${version}.zip`,
+	async (target, out, cgr, sgr) => {
+		await target.need(de`${out.dir}`, SGrSuperTtcFile(cgr, sgr));
+		await CreateGroupArchiveFile(DIST_SUPER_TTC, out, `${sgr}.ttc`);
 	},
 );
 
@@ -852,7 +993,7 @@ async function CreateGroupArchiveFile(dir, out, ...files) {
 	echo.action(echo.hl.command("Create Archive"), out.full);
 	await cd(dir).silently.run(
 		[SEVEN_ZIP, "a"],
-		["-tzip", "-r", "-mx=9", "-mmt=off"],
+		["-tzip", "-r", "-mx=9", "-mmt1"],
 		relOut,
 		...files,
 	);
@@ -868,6 +1009,11 @@ async function CreateGroupArchiveFile(dir, out, ...files) {
 const Pages = task(`pages`, async t => {
 	await t.need(
 		PagesDataExport,
+		PagesFontVersionSync,
+		PagesAtlasExport(`Iosevka`),
+		PagesAtlasExport(`IosevkaSlab`),
+		PagesAtlasExport(`IosevkaAile`),
+		PagesAtlasExport(`IosevkaEtoile`),
 		PagesFontExport`Iosevka`,
 		PagesFontExport`IosevkaSlab`,
 		PagesFontExport`IosevkaAile`,
@@ -885,25 +1031,50 @@ const PagesDir = oracle(`pages-dir-path`, async t => {
 	return rp.buildOptions.__pagesDir;
 });
 
+const PagesFontVersionSync = task(`pages:font-version-sync`, async t => {
+	const [version] = await t.need(Version);
+	const [pagesDir] = await t.need(PagesDir);
+	const packageJson = JSON.parse(
+		await FS.promises.readFile(Path.resolve(pagesDir, "package.json"), "utf-8"),
+	);
+	packageJson.version = version;
+	await FS.promises.writeFile(
+		Path.resolve(pagesDir, "package.json"),
+		JSON.stringify(packageJson, null, "  "),
+	);
+});
+
 const PagesDataExport = task(`pages:data-export`, async t => {
 	const [version] = await t.need(Version);
-	const [pagesDir] = await t.need(PagesDir, Version, Parameters, UtilScripts);
-	const [cm, cmi, cmo] = await t.need(
-		BuildCM("Iosevka", "Iosevka-Regular"),
-		BuildCM("Iosevka", "Iosevka-Italic"),
-		BuildCM("Iosevka", "Iosevka-Oblique"),
-	);
+	const [pagesDir] = await t.need(PagesDir, Parameters, UtilScripts);
 	await node(`tools/generate-samples/src/tokenized-sample-code.mjs`, {
 		output: Path.resolve(pagesDir, "shared/tokenized-sample-code/alphabet.txt.json"),
 	});
-	await node(`tools/data-export/src/index.mjs`, {
+	await node(`tools/data-export/src/meta.mjs`, {
 		version,
 		paramsDir: Path.resolve("params"),
+		exportPathMeta: Path.resolve(pagesDir, "shared/data-import/raw/metadata.json"),
+	});
+});
+
+const PagesAtlasExport = task.group(`pages:atlas-export`, async (t, gr) => {
+	const [version] = await t.need(Version);
+	const [pagesDir] = await t.need(PagesDir, Parameters, UtilScripts);
+	const [cm, cmi, cmo] = await t.need(
+		BuildCM(gr, `${gr}-Regular`),
+		BuildCM(gr, `${gr}-Italic`),
+		BuildCM(gr, `${gr}-Oblique`),
+	);
+	await node(`tools/data-export/src/atlas.mjs`, {
+		version,
 		charMapPath: cm.full,
 		charMapItalicPath: cmi.full,
 		charMapObliquePath: cmo.full,
-		exportPathMeta: Path.resolve(pagesDir, "shared/data-import/raw/metadata.json"),
-		exportPathCov: Path.resolve(pagesDir, "shared/data-import/raw/coverage.json"),
+		outputShared:
+			gr === "Iosevka"
+				? Path.resolve(pagesDir, "shared/data-import/raw/atlas-shared.json")
+				: null,
+		output: Path.resolve(pagesDir, `shared/data-import/raw/atlas-${gr}.json`),
 	});
 });
 
@@ -918,8 +1089,12 @@ const PagesFontExport = task.group(`pages:font-export`, async (target, gr) => {
 	await rm(Path.resolve(outDir, "TTF"));
 });
 
-const PagesFastFontExport = task.group(`pages:fast-font-export`, async (target, gr) => {
+const PagesFastFont = task.group(`pages:ff`, async (t, gr) => {
+	await t.need(PagesDataExport, PagesAtlasExport(gr), PagesFastFontExportImpl(gr));
+});
+const PagesFastFontExportImpl = task.group(`pages:fast-font-export-impl`, async (target, gr) => {
 	target.is.volatile();
+
 	const [pagesDir] = await target.need(PagesDir);
 	if (!pagesDir) return;
 	const outDir = Path.resolve(pagesDir, "shared/fonts/imports", gr);
@@ -997,6 +1172,7 @@ const ReleaseNotePackagesFile = file(`${BUILD}/release-packages.json`, async (t,
 	await FS.promises.writeFile(out.full, JSON.stringify(releaseNoteGroups, null, "  "));
 });
 const AmendLicenseYear = task("amend-readme:license-year", async target => {
+	await target.need(Version, Parameters, UtilScripts);
 	return node(`tools/amend-readme/src/license-year.mjs`, {
 		path: "LICENSE.md",
 	});
@@ -1116,81 +1292,123 @@ const CleanDist = task(`clean-dist`, async () => {
 });
 
 const Release = task(`release`, async target => {
-	await target.need(ReleaseArchives, SampleImages, Pages, AmendReadme, ReleaseNotes, ChangeLog);
+	await target.need(ReleaseAncillary);
+	await target.need(ReleaseArchives, ReleaseSha256Text);
 });
 
+const ReleaseAncillary = task(`release:ancillary`, async target => {
+	await target.need(SampleImages, Pages, AmendReadme, ReleaseNotes, ChangeLog);
+});
 const ReleaseArchives = task(`release:archives`, async target => {
-	const [version, collectPlans] = await target.need(Version, CollectPlans, UtilScriptFiles);
+	const [collectPlans] = await target.need(CollectPlans, UtilScripts);
+
 	let goals = [];
 	for (const [cgr, plan] of Object.entries(collectPlans)) {
 		if (!plan.inRelease) continue;
-		const subGroups = collectPlans[cgr].groupDecomposition;
-		goals.push(TtcZip(cgr, version));
-		goals.push(SuperTtcZip(cgr, version));
-		for (const gr of subGroups) {
-			goals.push(GroupTtfZip(gr, version, false));
-			goals.push(GroupTtfZip(gr, version, true));
-			goals.push(GroupWebZip(gr, version, false));
-			goals.push(GroupWebZip(gr, version, true));
-		}
+		goals.push(ReleaseArchivesFor(cgr));
 	}
+
 	const [archiveFiles] = await target.need(goals);
-	// Create hash of packages
-	await node("tools/misc/src/create-sha-file.mjs", "doc/packages-sha.txt", archiveFiles);
+	return archiveFiles.flat(1);
+});
+const ReleaseSha256Text = file(`${ARCHIVE_DIR}/SHA-256.txt`, async (target, out) => {
+	const [files] = await target.need(ReleaseArchives);
+	await node(
+		`tools/misc/src/generate-release-sha-file.mjs`,
+		files.map(f => f.full),
+		out.full,
+	);
+});
+
+const ReleaseArchivesFor = task.group(`release:archives-for`, async (target, cgr) => {
+	const [version, collectPlans] = await target.need(Version, CollectPlans, UtilScripts);
+	const plan = collectPlans[cgr];
+	if (!plan || !plan.inRelease) throw new Error(`CollectGroup ${cgr} is not in release.`);
+
+	let goals = [];
+
+	goals.push(TtcZip(cgr, version));
+	goals.push(SuperTtcZip(cgr, version));
+	for (const sgr in plan.singleGroupTtcInfos) {
+		goals.push(SgrTtcZip(cgr, sgr, version));
+		goals.push(SgrSuperTtcZip(cgr, sgr, version));
+	}
+
+	const subGroups = collectPlans[cgr].groupDecomposition;
+	for (const gr of subGroups) {
+		goals.push(GroupTtfZip(gr, version, false));
+		goals.push(GroupTtfZip(gr, version, true));
+		goals.push(GroupWebZip(gr, version, false));
+		goals.push(GroupWebZip(gr, version, true));
+	}
+
+	const [archiveFiles] = await target.need(goals);
+	return archiveFiles;
 });
 
 ///////////////////////////////////////////////////////////
 //////               Script Building                 //////
 ///////////////////////////////////////////////////////////
 
-const MARCOS = [
-	fu`packages/font-glyphs/src/meta/macros.ptl`,
-	fu`packages/font-otl/src/meta/macros.ptl`,
-];
-const ScriptsUnder = oracle.make(
-	(ext, dir) => `${ext}-scripts-under::${dir}`,
-	(target, ext, dir) => FileList({ under: dir, pattern: `**/*.${ext}` })(target),
-);
-const UtilScriptFiles = computed("util-script-files", async target => {
-	const [mjs, md] = await target.need(ScriptsUnder("mjs", "tools"), ScriptsUnder("md", "tools"));
-	return [...mjs, ...md];
-});
-const ScriptFiles = computed.group("script-files", async (target, ext) => {
-	const [ss] = await target.need(ScriptsUnder(ext, `packages`));
-	return ss;
-});
-const JavaScriptFromPtl = computed("scripts-js-from-ptl", async target => {
-	const [ptl] = await target.need(ScriptFiles("ptl"));
-	return ptl.map(x => replaceExt(".mjs", x));
-});
-function replaceExt(extNew, file) {
-	return Path.posix.join(Path.dirname(file), Path.basename(file, Path.extname(file)) + extNew);
-}
-
-const CompiledJs = file.make(
-	p => p,
-	async (target, out) => {
-		const ptl = replaceExt(".ptl", out.full);
-		await target.need(MARCOS);
-		await target.need(sfu(ptl));
-		echo.action(echo.hl.command("Compile Script"), ptl);
-		await silently.run(PATEL_C, "--strict", "--esm", ptl, "-o", out.full);
-	},
-);
 const Scripts = task("scripts", async target => {
-	const [jsFromPtlList] = await target.need(JavaScriptFromPtl);
-	const [jsList] = await target.need(ScriptFiles("mjs"));
-	const jsFromPtlSet = new Set(jsFromPtlList);
+	const [jsFromPtlMap] = await target.need(JsFilesFromPtl);
+	const [jsList] = await target.need(FindScriptsUnder(`mjs`, PACKAGES));
+	const jsFromPtlSet = new Set(Object.keys(jsFromPtlMap));
 
 	let subGoals = [];
-	for (const js of jsFromPtlSet) subGoals.push(CompiledJs(js));
+	for (const js of jsFromPtlSet) subGoals.push(CompiledJsFromPtl(js));
 	for (const js of jsList) if (!jsFromPtlSet.has(js)) subGoals.push(sfu(js));
 	await target.need(subGoals);
 });
 const UtilScripts = task("util-scripts", async target => {
-	const [files] = await target.need(UtilScriptFiles);
-	await target.need(files.map(fu));
+	const [mjs] = await target.need(FindScriptsUnder("mjs", TOOLS));
+	const [md] = await target.need(FindScriptsUnder("md", TOOLS));
+	await target.need(mjs.map(fu), md.map(fu));
 });
+
+const FindScriptsUnder = oracle.make(
+	(ext, dir) => `${ext}-scripts-under::${dir}`,
+	(target, ext, dir) => FileList({ under: dir, pattern: `**/*.${ext}` })(target),
+);
+
+const JsFilesFromPtl = computed("scripts-js-from-ptl", async target => {
+	const [ptl] = await target.need(FindScriptsUnder(`ptl`, PACKAGES));
+	return Object.fromEntries(ptl.map(compiledMjsPathFromPtlPath));
+});
+const MacroPtlFiles = computed("macro-ptl-files", async target => {
+	const [jsFromPtlMap] = await target.need(JsFilesFromPtl);
+	let macroGoals = [];
+	for (const [mjs, { isMacro, fromPath }] of Object.entries(jsFromPtlMap)) {
+		if (isMacro) macroGoals.push(sfu(fromPath));
+	}
+	await target.need(macroGoals);
+});
+function compiledMjsPathFromPtlPath(path) {
+	const dirName = Path.dirname(path);
+	const newDirName = dirName.replace(/packages\/([\w-]+)\/src(?=$|\/)/, "packages/$1/lib");
+	const newFileName = Path.basename(path, Path.extname(path)) + ".mjs";
+	const isMacro = Path.basename(path) === "macros.ptl";
+	return [
+		`${newDirName}/${newFileName}`,
+		{ isMacro, fromPath: path, oldOutPath: `${dirName}/${newFileName}` },
+	];
+}
+
+const CompiledJsFromPtl = file.make(
+	p => p,
+	async (target, out) => {
+		const [jsFromPtlMap] = await target.need(JsFilesFromPtl);
+		const ptl = jsFromPtlMap[out.full].fromPath;
+		const oldOutPath = jsFromPtlMap[out.full].oldOutPath;
+
+		await target.need(MacroPtlFiles, sfu(ptl));
+
+		echo.action(echo.hl.command("Compile Script"), ptl);
+		await rm(oldOutPath); // Remove old output file
+		await target.need(de(Path.dirname(out.full))); // Create output directory
+		await silently.run(PATEL_C, "--strict", "--esm", ptl, "-o", out.full);
+	},
+);
 
 const Parameters = task(`meta:parameters`, async target => {
 	await target.need(
@@ -1250,22 +1468,48 @@ function resolveWws(bpName, buildPlans, defaultConfig) {
 function resolveWwsAspect(aspectName, bpName, buildPlans, defaultConfig, deps) {
 	const bp = buildPlans[bpName];
 	if (!bp) fail(`Build plan ${bpName} not found.`);
+	if (deps.includes(bp)) {
+		fail(`Circular dependency detected when resolving ${aspectName} of ${bp.family}.`);
+	}
+	const updatedDeps = [...deps, bpName];
 
 	if (bp[aspectName]) {
-		return shimBpAspect(aspectName, bp[aspectName], defaultConfig[aspectName]);
+		const aspect = bp[aspectName];
+		if (typeof aspect.inherits == "string") {
+			if (aspect.inherits === "default") {
+				return defaultConfig[aspectName];
+			} else {
+				// Make sure it start with `buildPlans.`
+				if (!aspect.inherits.startsWith("buildPlans.")) {
+					fail(
+						`Invalid \`inherits\`2 value for ${aspectName} in ${bpName}. ` +
+							`It must be \`default\` or start with \`buildPlans.\`.`,
+					);
+				}
+				const inheritedPlanName = aspect.inherits.slice("buildPlans.".length);
+				return resolveWwsAspect(
+					aspectName,
+					inheritedPlanName,
+					buildPlans,
+					defaultConfig,
+					updatedDeps,
+				);
+			}
+		} else {
+			return shimBpAspect(aspectName, bp[aspectName], defaultConfig[aspectName]);
+		}
 	} else if (bp[`${aspectName}-inherits`]) {
+		echo.warn(
+			`The ${aspectName}-inherits syntax is deprecated. ` +
+				`Use the new syntax \`${aspectName}.inherits = "buildPlans.<plan name>\` instead.`,
+		);
 		const inheritedPlanName = bp[`${aspectName}-inherits`];
-		const inheritedPlan = buildPlans[inheritedPlanName];
-		if (deps.includes(inheritedPlan))
-			fail(`Circular dependency detected when resolving ${aspectName} of ${bp.family}.`);
-
-		const updatedDes = [...deps, bpName];
 		return resolveWwsAspect(
 			aspectName,
 			inheritedPlanName,
 			buildPlans,
 			defaultConfig,
-			updatedDes,
+			updatedDeps,
 		);
 	} else {
 		return defaultConfig[aspectName];
@@ -1282,11 +1526,18 @@ function shimBpAspect(aspectName, aspect, defaultAspect) {
 }
 function shimBpAspectKey(aspectName, sink, k, v, defaultAspect) {
 	if (typeof v === "string") {
-		if (!/^default\./.test(v))
-			throw new Error(`Invalid configuration '${v}' for ${aspectName}.${k}'`);
+		if (!v.startsWith("default."))
+			throw new Error(
+				`Invalid configuration '${v}' for ${aspectName}.${k}'. ` +
+					`It must start with 'default.'`,
+			);
 		const remappingKey = v.slice("default.".length);
 		if (!defaultAspect[remappingKey])
-			throw new Error(`Invalid configuration '${v}' for ${aspectName}.${k}'`);
+			throw new Error(
+				`Invalid configuration '${v}' for ${aspectName}.${k}'. ` +
+					`The default aspect doesn't have a key '${remappingKey}'.`,
+			);
+
 		sink[k] = defaultAspect[remappingKey];
 	} else {
 		sink[k] = v;

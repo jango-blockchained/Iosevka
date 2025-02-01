@@ -5,10 +5,9 @@ import as Gr from "@iosevka/glyph/relation"
 
 glyph-module
 
-glyph-block Symbol-Geometric-Mosaic-Inverted : for-width-kinds WideWidth1
+glyph-block Symbol-Mosaic-Inverted : for-width-kinds WideWidth1
 	glyph-block-import CommonShapes
 	glyph-block-import Common-Derivatives
-	glyph-block-import Symbol-Geometric-Shared : GeometricDim UnicodeWeightGrade GeometricSizes
 
 	define MosaicTop    fontMetrics.os2.sTypoAscender
 	define MosaicBottom fontMetrics.os2.sTypoDescender
@@ -40,14 +39,14 @@ glyph-block Symbol-Geometric-Mosaic-Inverted : for-width-kinds WideWidth1
 	create-glyph [MangleName 'negBlackDiamond'] [MangleUnicode 0x1CC8D] : glyph-proc
 		set-width MosaicWidth
 		include : difference
-			refer-glyph : MangleName 'uni2588'
+			refer-glyph : MangleName : NameUni 0x2588
 			refer-glyph : MangleName 'blackDiamond'
 
 	# create-glyph [MangleName 'negBlackDiamond.mosc'] : glyph-proc
 	# 	set-width MosaicWidth
 	# 	include : ForceUpright
 	# 	include : difference
-	# 		refer-glyph : MangleName 'uni2588'
+	# 		refer-glyph : MangleName : NameUni 0x2588
 	# 		refer-glyph : MangleName 'blockMosaicSmooth22/2486'
 	# Gr.linkSingleGlyphPairGr glyphStore [MangleName 'negBlackDiamond'] [MangleName 'negBlackDiamond.mosc'] Gr.MosaicForm
 
@@ -86,24 +85,30 @@ glyph-block Symbol-Geometric-Mosaic-Inverted : for-width-kinds WideWidth1
 			refer-glyph : MangleName : NameUni 0x2588
 			refer-glyph : MangleName 'arrowDown'
 
-	# Box Drawing
+glyph-block Symbol-Mosaic-Inverted-Box-Drawing : for-width-kinds WideWidth4
+	glyph-block-import CommonShapes
+	glyph-block-import Common-Derivatives
+
+	define MosaicTop    fontMetrics.os2.sTypoAscender
+	define MosaicBottom fontMetrics.os2.sTypoDescender
+
 	create-glyph [MangleName : NameUni 0x1FBBD] [MangleUnicode 0x1FBBD] : glyph-proc
 		set-width MosaicWidth
 		include : ForceUpright
 		include : difference
-			glyph-proc : include : refer-glyph : MangleName : NameUni 0x2588
-			glyph-proc : include : refer-glyph : MangleName : NameUni 0x2573
+			refer-glyph : MangleName : NameUni 0x2588
+			refer-glyph : MangleName : NameUni 0x2573
 
 	create-glyph [MangleName : NameUni 0x1FBBE] [MangleUnicode 0x1FBBE] : glyph-proc
 		set-width MosaicWidth
 		include : ForceUpright
 		include : difference
-			glyph-proc : include : refer-glyph : MangleName : NameUni 0x2588
-			glyph-proc : include : refer-glyph : MangleName : NameUni 0x1FBA3
+			refer-glyph : MangleName : NameUni 0x2588
+			refer-glyph : MangleName : NameUni 0x1FBA3
 
 	create-glyph [MangleName : NameUni 0x1FBBF] [MangleUnicode 0x1FBBF] : glyph-proc
 		set-width MosaicWidth
 		include : ForceUpright
 		include : difference
-			glyph-proc : include : refer-glyph : MangleName : NameUni 0x2588
-			glyph-proc : include : refer-glyph : MangleName : NameUni 0x1FBAE
+			refer-glyph : MangleName : NameUni 0x2588
+			refer-glyph : MangleName : NameUni 0x1FBAE

@@ -24,6 +24,16 @@ glyph-block Symbol-Geometric-Square-Corners : for-width-kinds WideWidth1
 					intersection [MaskBelow (Geom.MidY + Geom.Size / 3)] [MaskAbove (Geom.MidY - Geom.Size / 3)]
 					intersection [MaskLeft (Geom.MidX + Geom.Size / 3)] [MaskRight (Geom.MidX - Geom.Size / 3)]
 
+		create-glyph [MangleName 'driveSlowSign'] [MangleUnicode 0x26DA] : glyph-proc
+			set-width Geom.Width
+			include : intersection
+				refer-glyph : MangleName 'blackSquare'
+				union
+					RingAt Geom.Left Geom.Top (Geom.Size / 2)
+					RingAt Geom.Left Geom.Bot (Geom.Size / 2)
+					RingAt Geom.Right Geom.Top (Geom.Size / 2)
+					RingAt Geom.Right Geom.Bot (Geom.Size / 2)			
+
 		create-glyph [MangleName 'squareCornersSaltires'] [MangleUnicode 0x1CC89] : glyph-proc
 			set-width Geom.Width
 			include : intersection
@@ -31,14 +41,14 @@ glyph-block Symbol-Geometric-Square-Corners : for-width-kinds WideWidth1
 					refer-glyph : MangleName 'blackSquare'
 					union
 						intersection [MaskBelow (Geom.MidY + Geom.Size / 3)] [MaskAbove (Geom.MidY - Geom.Size / 3)]
-						intersection [MaskLeft (Geom.MidX + Geom.Size / 3)] [MaskRight (Geom.MidX - Geom.Size / 3)]			
+						intersection [MaskLeft (Geom.MidX + Geom.Size / 3)] [MaskRight (Geom.MidX - Geom.Size / 3)]
 				union
 					dispiro [widths.center lineWidth] [flat Geom.MidX (Geom.MidY + Geom.Size * (4 / 3))] [curl (Geom.MidX + Geom.Size * (4 / 3)) Geom.MidY]
 					dispiro [widths.center lineWidth] [flat (Geom.MidX + Geom.Size * (4 / 3)) Geom.MidY] [curl Geom.MidX (Geom.MidY - Geom.Size * (4 / 3))]
 					dispiro [widths.center lineWidth] [flat Geom.MidX (Geom.MidY - Geom.Size * (4 / 3))] [curl (Geom.MidX - Geom.Size * (4 / 3)) Geom.MidY]
-					dispiro [widths.center lineWidth] [flat (Geom.MidX - Geom.Size * (4 / 3)) Geom.MidY] [curl Geom.MidX (Geom.MidY + Geom.Size * (4 / 3))] 
-					dispiro [widths.center lineWidth] [flat (Geom.MidX - Geom.Size) (Geom.MidY + Geom.Size)] [curl (Geom.MidX + Geom.Size) (Geom.MidY - Geom.Size)] 
-					dispiro [widths.center lineWidth] [flat (Geom.MidX - Geom.Size) (Geom.MidY - Geom.Size)] [curl (Geom.MidX + Geom.Size) (Geom.MidY + Geom.Size)] 
+					dispiro [widths.center lineWidth] [flat (Geom.MidX - Geom.Size * (4 / 3)) Geom.MidY] [curl Geom.MidX (Geom.MidY + Geom.Size * (4 / 3))]
+					dispiro [widths.center lineWidth] [flat (Geom.MidX - Geom.Size) (Geom.MidY + Geom.Size)] [curl (Geom.MidX + Geom.Size) (Geom.MidY - Geom.Size)]
+					dispiro [widths.center lineWidth] [flat (Geom.MidX - Geom.Size) (Geom.MidY - Geom.Size)] [curl (Geom.MidX + Geom.Size) (Geom.MidY + Geom.Size)]
 
 		create-glyph [MangleName 'squareCornersDiagonals'] [MangleUnicode 0x1CC8A] : glyph-proc
 			set-width Geom.Width
@@ -48,7 +58,7 @@ glyph-block Symbol-Geometric-Square-Corners : for-width-kinds WideWidth1
 					dispiro [widths.lhs lineWidth] [flat Geom.MidX (Geom.MidY + Geom.Size * (4 / 3))] [curl (Geom.MidX + Geom.Size * (4 / 3)) Geom.MidY]
 					dispiro [widths.lhs lineWidth] [flat (Geom.MidX + Geom.Size * (4 / 3)) Geom.MidY] [curl Geom.MidX (Geom.MidY - Geom.Size * (4 / 3))]
 					dispiro [widths.lhs lineWidth] [flat Geom.MidX (Geom.MidY - Geom.Size * (4 / 3))] [curl (Geom.MidX - Geom.Size * (4 / 3)) Geom.MidY]
-					dispiro [widths.lhs lineWidth] [flat (Geom.MidX - Geom.Size * (4 / 3)) Geom.MidY] [curl Geom.MidX (Geom.MidY + Geom.Size * (4 / 3))] 
+					dispiro [widths.lhs lineWidth] [flat (Geom.MidX - Geom.Size * (4 / 3)) Geom.MidY] [curl Geom.MidX (Geom.MidY + Geom.Size * (4 / 3))]
 
 		create-glyph [MangleName 'squareCornersTriangles'] [MangleUnicode 0x1CC8B] : glyph-proc
 			set-width Geom.Width
@@ -102,3 +112,4 @@ glyph-block Symbol-Geometric-Square-Corners : for-width-kinds WideWidth1
 							widths.center lineWidth
 							flat (Geom.MidX - Geom.Size - aperature) (Geom.MidY + Geom.Size)
 							curl (Geom.MidX + Geom.Size - aperature) (Geom.MidY - Geom.Size)
+

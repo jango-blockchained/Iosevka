@@ -6,12 +6,11 @@ jobs:
   build:
     name: Build ${{ matrix.fontName }} font
     if: github.repository == 'be5invis/Iosevka'
-
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        fontName: ["Iosevka", "IosevkaSlab", "IosevkaAile", "IosevkaEtoile"]
+        fontName: ["Iosevka", "IosevkaSlab", "IosevkaAile", "IosevkaEtoile", "IosevkaNoVarTest"]
 
     steps:
       # Checkout repository into `iosevka` sub directory

@@ -31,7 +31,7 @@ glyph-block Symbol-Mosaic-Box-Drawing : begin
 			create-glyph [MangleName : NameUni unicode] [MangleUnicode unicode] : glyph-proc
 				set-width MosaicWidth
 				include : ForceUpright
-				local posx : mix (left + light / 2) (right - light / 2) pos
+				local posx : mix (left + [HSwToV light] / 2) (right - [HSwToV light] / 2) pos
 				include : VBar.m posx bottom top light
 
 		# Scan Lines
@@ -534,5 +534,5 @@ glyph-block Symbol-Mosaic-Box-Drawing : begin
 			set-width MosaicWidth
 			include : ForceUpright
 			include : intersection
-				glyph-proc : include : refer-glyph : MangleName : NameUni 0x253C
+				refer-glyph : MangleName : NameUni 0x253C
 				Rect [mix bottom top 0.35] [mix bottom top 0.65] 0 MosaicWidth

@@ -6,14 +6,24 @@ import { CliProc, Ot } from "ot-builder";
 
 import { readTTF, saveTTF } from "./font-io/index.mjs";
 import { assignFontNames, createNamingDictFromArgv } from "./naming/index.mjs";
+import { getParametersT } from "./param/index.mjs";
+import { postProcessFont } from "./post-processing/index.mjs";
+import { validateFontConfigMono } from "./validate/metrics.mjs";
 
 export default main;
 async function main(argv) {
+	// Set up parameters
+	const paraT = await getParametersT(argv);
+	const para = paraT(argv);
+
+	// Read in font
 	const font = await readTTF(argv.i);
 
+	// Assign font names
 	const naming = createNamingDictFromArgv(argv);
 	assignFontNames(font, naming, false);
 
+	// Derive spacing
 	switch (argv.shape.spacing) {
 		case "term":
 			await deriveTerm(font);
@@ -30,12 +40,15 @@ async function main(argv) {
 			break;
 	}
 
+	// Save no-GC result
 	await saveTTF(argv.oNoGc, font);
 
+	// GC and save
 	switch (argv.shape.spacing) {
 		case "fontconfig-mono":
 		case "fixed":
 			CliProc.gcFont(font, Ot.ListGlyphStoreFactory);
+			postProcessFont(para, font);
 			validateFontConfigMono(font);
 			await saveTTF(argv.o, font);
 			break;
@@ -72,6 +85,8 @@ async function deriveTerm(font) {
 // Drop the following "long" characters.
 async function deriveFixed_DropWideChars(font) {
 	const longCharCodes = [
+		0x27dd, // LONG RIGHT TACK
+		0x27de, // LONG LEFT TACK
 		0x27f5, // LONG LEFTWARDS ARROW
 		0x27f6, // LONG RIGHTWARDS ARROW
 		0x27f7, // LONG LEFT RIGHT ARROW
@@ -110,23 +125,5 @@ async function deriveFixed_DropFeatures(font, argv, fFixed) {
 			feature.lookups.length = 0;
 			feature.params = null;
 		}
-	}
-}
-
-// In FontConfig, a font is considered "monospace" if and only if all encoded non-combining
-// characters (AW > 0) have the same width. We use this method to validate whether our
-// "Fixed" subfamilies are properly built.
-function validateFontConfigMono(font) {
-	let awSet = new Set();
-	for (const [ch, g] of [...font.cmap.unicode.entries()]) {
-		const aw = g.horizontal.end - g.horizontal.start;
-		if (aw > 0) awSet.add(aw);
-	}
-	for (const [ch, vs, g] of [...font.cmap.vs.entries()]) {
-		const aw = g.horizontal.end - g.horizontal.start;
-		if (aw > 0) awSet.add(aw);
-	}
-	if (awSet.size > 1) {
-		console.error("Fixed variant has wide characters");
 	}
 }

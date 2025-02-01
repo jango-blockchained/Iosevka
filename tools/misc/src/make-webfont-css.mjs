@@ -17,11 +17,11 @@ export default function (output, family, hs, formats, unhinted) {
 		if (!WebfontFormatMap.get(ext)) throw new TypeError("Invalid webfont file format " + ext);
 	}
 	for (const term of hs) {
-		const dirSuffix = unhinted ? "-unhinted" : "";
+		const dirSuffix = unhinted ? "-Unhinted" : "";
 		const src = formats
 			.map(
 				ext =>
-					`url('${ext}${dirSuffix}/${term.name}.${ext}') ` +
+					`url('${ext}${dirSuffix}/${term.name}.${ext.toLowerCase()}') ` +
 					`format('${WebfontFormatMap.get(ext)}')`,
 			)
 			.join(", ");
